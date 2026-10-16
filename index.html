@@ -418,8 +418,8 @@
       メニューと会計履歴は連携した全ての POS 端末で共有され、リアルタイムに更新されます。<br>
       グループチャットの管理者が「グループ設定 → POS連携」で表示する内容を入力してください。
     </p>
-    <label for="link-server">サーバーの URL</label>
-    <input type="url" id="link-server" placeholder="https://〜.onrender.com" autocomplete="off">
+    <label for="link-server" class="link-server-field">サーバーの URL</label>
+    <input type="url" id="link-server" class="link-server-field" placeholder="https://〜.onrender.com" autocomplete="off">
     <label for="link-code">接続コード</label>
     <input type="text" id="link-code" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="link-result"></div>
@@ -503,7 +503,9 @@ function saveJSON(key, value) {
     else localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {}
 }
-const serverBase = () => link.server.replace(/\/+$/, '');
+// グループチャットのサーバーから配信されているとき(<meta name="pos-server">)は、そのサーバーと自動で連携する
+const SAME_SERVER = document.querySelector('meta[name="pos-server"]') ? location.origin : null;
+const serverBase = () => (SAME_SERVER || link.server).replace(/\/+$/, '');
 
 async function posApi(method, path, body) {
   const res = await fetch(`${serverBase()}/api/pos${path}`, {
@@ -967,7 +969,8 @@ $('settings-save').addEventListener('click', async () => {
 
 // ---------- 連携設定 ----------
 function openLinkSettings() {
-  $('link-server').value = link?.server ?? '';
+  $('link-server').value = SAME_SERVER || link?.server || '';
+  document.querySelectorAll('.link-server-field').forEach((el) => el.classList.toggle('hidden', !!SAME_SERVER));
   $('link-code').value = link?.code ?? '';
   $('link-result').textContent = '';
   $('link-remove').classList.toggle('hidden', !link);
@@ -1079,7 +1082,7 @@ $('link-remove').addEventListener('click', () => {
   $('link-settings').classList.add('hidden');
 });
 $('link-save').addEventListener('click', async () => {
-  const server = $('link-server').value.trim().replace(/\/+$/, '');
+  const server = SAME_SERVER || $('link-server').value.trim().replace(/\/+$/, '');
   const code = $('link-code').value.trim();
   const result = $('link-result');
   if (!/^https?:\/\/[^/]+/.test(server) || !code) {
@@ -1107,8 +1110,9 @@ $('link-save').addEventListener('click', async () => {
 // 管理者が作った「設定済みリンク」(?server=…&code=…)で開いたときは自動で連携する
 (function readLinkParams() {
   const p = new URLSearchParams(location.search);
-  if (p.get('server') && p.get('code')) {
-    link = { server: p.get('server').replace(/\/+$/, ''), code: p.get('code') };
+  const server = SAME_SERVER || p.get('server');
+  if (server && p.get('code')) {
+    link = { server: server.replace(/\/+$/, ''), code: p.get('code') };
     saveJSON(LINK_KEY, link);
     window.history.replaceState(null, '', location.pathname);
   }
@@ -1117,6 +1121,11 @@ $('link-save').addEventListener('click', async () => {
 renderChoices();
 renderSummary();
 connect();
+
+// グループチャットのサーバーから配信されているときは、圏外やサーバー停止中でも画面を開けるよう端末に保存する
+if (SAME_SERVER && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/pos/sw.js', { scope: '/pos/' }).catch(() => {});
+}
 </script>
 </body>
 </html>
