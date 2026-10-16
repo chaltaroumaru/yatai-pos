@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>屋台POS</title>
+<style>
+  :root {
+    --bg: #fff8ef;
+    --panel: #ffffff;
+    --ink: #2b2118;
+    --muted: #8a7a6a;
+    --accent: #e8590c;
+    --accent-dark: #c94a06;
+    --line: #eadfce;
+    --syrup: #1c7ed6;
+    --drink: #2f9e44;
+    --ice: #ae3ec9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  button { font: inherit; cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* ===== 注文画面 ===== */
+  #order-screen {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    height: 100vh;
+  }
+  #summary {
+    background: var(--panel);
+    border-right: 2px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    min-height: 0;
+  }
+  #summary h2 { margin: 0 0 8px; font-size: 20px; }
+  #summary-list {
+    flex: 1;
+    overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  #summary-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 4px;
+    border-bottom: 1px dashed var(--line);
+    font-size: 17px;
+  }
+  #summary-list li.sub { color: var(--muted); font-size: 14px; padding-top: 0; border-bottom: none; }
+  #summary-list li.group-head { font-weight: bold; color: var(--muted); font-size: 13px; border-bottom: none; padding-bottom: 0; }
+  .empty { color: var(--muted); text-align: center; margin-top: 40px; line-height: 1.8; }
+  .warn { color: #c92a2a; font-size: 14px; margin: 8px 0 0; min-height: 1.4em; }
+  .total-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-top: 2px solid var(--ink);
+    padding-top: 10px; margin-top: 8px;
+    font-size: 18px;
+  }
+  .total-row strong { font-size: 32px; }
+  .btn {
+    border: none; border-radius: 14px; padding: 16px; font-size: 20px; font-weight: bold; width: 100%;
+  }
+  .btn-primary { background: var(--accent); color: #fff; margin-top: 10px; }
+  .btn-primary:active { background: var(--accent-dark); }
+  .btn-primary:disabled { background: #d8cbbb; cursor: not-allowed; }
+  .btn-sub { background: #f1e6d8; color: var(--ink); margin-top: 10px; font-size: 16px; padding: 12px; }
+  .btn-sub:disabled { color: #b8a998; cursor: not-allowed; }
+
+  #menu {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 20px;
+    overflow-y: auto;
+  }
+  .menu-head { display: flex; justify-content: space-between; align-items: center; }
+  .menu-head h1 { margin: 0; font-size: 24px; }
+  .price-note { color: var(--muted); font-size: 15px; }
+  .gear { background: none; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; color: var(--muted); font-size: 14px; }
+
+  section.block {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 14px 16px 16px;
+    border: 2px solid var(--line);
+  }
+  section.block h3 { margin: 0 0 10px; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+  section.block h3 .tag { font-size: 12px; color: #fff; border-radius: 999px; padding: 2px 10px; font-weight: normal; }
+  #syrup-block h3 .tag { background: var(--syrup); }
+  #drink-block h3 .tag { background: var(--drink); }
+  #ice-block h3 .tag { background: var(--ice); }
+
+  .choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .choice { position: relative; }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice > span {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    min-height: 76px; padding: 8px;
+    border: 3px solid var(--line); border-radius: 14px;
+    font-size: 20px; font-weight: bold; background: #fffdfa;
+    transition: transform .05s;
+  }
+  .choice > span::before {
+    content: ""; width: 22px; height: 22px; margin-right: 10px; flex: none;
+    border: 3px solid var(--line); border-radius: 6px; background: #fff;
+  }
+  .choice > span:active { transform: scale(.97); }
+  .choice input:checked + span::before { background: currentColor; border-color: currentColor; box-shadow: inset 0 0 0 3px #fff; }
+  #syrup-block .choice input:checked + span { border-color: var(--syrup); color: var(--syrup); background: #e7f5ff; }
+  #drink-block .choice input:checked + span { border-color: var(--drink); color: var(--drink); background: #ebfbee; }
+  #ice-block .choice input:checked + span { border-color: var(--ice); color: var(--ice); background: #f8f0fc; }
+  #ice-block .choices { grid-template-columns: repeat(2, minmax(150px, 260px)); }
+  .plus { font-size: 15px; margin-left: 6px; font-weight: normal; }
+
+  /* ===== 会計画面 ===== */
+  #checkout-screen {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 24px;
+  }
+  .card { background: var(--panel); border-radius: 18px; border: 2px solid var(--line); padding: 20px; display: flex; flex-direction: column; min-height: 0; }
+  .card h2 { margin: 0 0 12px; }
+  #checkout-list { list-style: none; padding: 0; margin: 0; flex: 1; overflow-y: auto; }
+  #checkout-list li { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--line); font-size: 18px; }
+  #checkout-list li.sub { color: var(--muted); font-size: 15px; border-bottom: none; padding-top: 0; }
+  .big-total { font-size: 48px; font-weight: bold; text-align: right; margin: 10px 0; }
+  .pay-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
+  .pay-buttons button { padding: 18px 0; border-radius: 12px; border: 2px solid var(--line); background: #fffdfa; font-size: 20px; font-weight: bold; }
+  .pay-buttons button:active { background: #f1e6d8; }
+  .money-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; padding: 8px 0; }
+  .money-row strong { font-size: 34px; }
+  #change.short { color: #c92a2a; }
+
+  /* ===== 完了 ===== */
+  #done-screen {
+    height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center;
+  }
+  #done-screen h1 { font-size: 44px; margin: 0; }
+  #done-screen p { font-size: 22px; margin: 0; color: var(--muted); }
+
+  /* ===== 設定 ===== */
+  #settings {
+    position: fixed; inset: 0; background: rgba(43,33,24,.5);
+    display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10;
+  }
+  .settings-box { background: var(--panel); border-radius: 18px; padding: 20px; width: min(720px, 100%); max-height: 90vh; overflow-y: auto; }
+  .settings-box h2 { margin: 0 0 4px; }
+  .settings-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; }
+  .settings-cols h3 { margin: 0 0 8px; font-size: 16px; }
+  .edit-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .edit-row input { flex: 1; min-width: 0; padding: 8px 10px; font-size: 16px; border: 2px solid var(--line); border-radius: 8px; }
+  .edit-row button { border: none; background: #ffe3e3; color: #c92a2a; border-radius: 8px; padding: 0 12px; }
+  .add-btn { border: 2px dashed var(--line); background: none; border-radius: 8px; padding: 8px; width: 100%; color: var(--muted); }
+  .settings-actions { display: flex; gap: 10px; margin-top: 18px; }
+
+  @media (max-width: 760px) {
+    #order-screen { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    #summary { order: 2; border-right: none; border-top: 2px solid var(--line); max-height: 55vh; }
+    #summary-list { min-height: 90px; }
+    #checkout-screen { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
+    .settings-cols { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 注文画面 -->
+<div id="order-screen">
+  <aside id="summary">
+    <h2>ご注文内容</h2>
+    <ul id="summary-list"></ul>
+    <p class="warn" id="warn"></p>
+    <button class="btn btn-sub" id="add-cup">＋ この1杯を確定して、もう1杯選ぶ</button>
+    <div class="total-row"><span>合計</span><strong id="summary-total">0円</strong></div>
+    <button class="btn btn-primary" id="to-checkout" disabled>会計へ進む</button>
+  </aside>
+
+  <main id="menu">
+    <div class="menu-head">
+      <div>
+        <h1>メニューを選んでください</h1>
+        <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋100円)</div>
+      </div>
+      <button class="gear" id="open-settings">⚙ メニュー編集</button>
+    </div>
+
+    <section class="block" id="syrup-block">
+      <h3>シロップ <span class="tag">お好みで</span></h3>
+      <div class="choices" id="syrup-choices"></div>
+    </section>
+
+    <section class="block" id="drink-block">
+      <h3>割る飲料・単品 <span class="tag">1つ以上えらぶ</span></h3>
+      <div class="choices" id="drink-choices"></div>
+    </section>
+
+    <section class="block" id="ice-block">
+      <h3>アイストッピング <span class="tag">＋100円</span></h3>
+      <div class="choices">
+        <label class="choice"><input type="checkbox" id="ice-yes"><span>あり<span class="plus">＋100円</span></span></label>
+        <label class="choice"><input type="checkbox" id="ice-no" checked><span>なし</span></label>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 会計画面 -->
+<div id="checkout-screen" class="hidden">
+  <div class="card">
+    <h2>お会計</h2>
+    <ul id="checkout-list"></ul>
+    <div class="big-total" id="checkout-total">0円</div>
+    <button class="btn btn-sub" id="back-to-order">← 注文に戻る</button>
+  </div>
+  <div class="card">
+    <h2>お預かり</h2>
+    <div class="pay-buttons">
+      <button data-add="100">＋100</button>
+      <button data-add="500">＋500</button>
+      <button data-add="1000">＋1,000</button>
+      <button data-add="5000">＋5,000</button>
+      <button data-add="10000">＋10,000</button>
+      <button id="pay-exact">ちょうど</button>
+    </div>
+    <button class="btn btn-sub" id="pay-clear">お預かりをクリア</button>
+    <div class="money-row"><span>お預かり</span><strong id="paid">0円</strong></div>
+    <div class="money-row"><span>おつり</span><strong id="change">—</strong></div>
+    <button class="btn btn-primary" id="finish" disabled>会計完了</button>
+  </div>
+</div>
+
+<!-- 完了画面 -->
+<div id="done-screen" class="hidden">
+  <h1>ありがとうございました!</h1>
+  <p id="done-msg"></p>
+</div>
+
+<!-- メニュー編集 -->
+<div id="settings" class="hidden">
+  <div class="settings-box">
+    <h2>メニュー編集</h2>
+    <div class="price-note">追加・名前の変更・削除ができます。保存するとこの端末に記録されます。</div>
+    <div class="settings-cols">
+      <div>
+        <h3>シロップ</h3>
+        <div id="edit-syrups"></div>
+        <button class="add-btn" data-add-to="edit-syrups">＋ シロップを追加</button>
+      </div>
+      <div>
+        <h3>割る飲料・単品</h3>
+        <div id="edit-drinks"></div>
+        <button class="add-btn" data-add-to="edit-drinks">＋ 飲料を追加</button>
+      </div>
+    </div>
+    <div class="settings-actions">
+      <button class="btn btn-sub" id="settings-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="settings-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE_PRICE = 400;
+const ICE_PRICE = 100;
+const STORAGE_KEY = 'yatai-pos-menu';
+const DEFAULT_MENU = {
+  syrups: ['ブルーキュラソー', 'カシス'],
+  drinks: ['炭酸', 'ジンジャー', 'オレンジ', 'コーラ', 'コーヒー', '紅茶'],
+};
+
+let menu = loadMenu();
+let cart = [];      // 確定済みの杯 { syrups:[], drink, ice }
+let paid = 0;
+
+const $ = (id) => document.getElementById(id);
+const yen = (n) => n.toLocaleString('ja-JP') + '円';
+
+function loadMenu() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved && Array.isArray(saved.syrups) && Array.isArray(saved.drinks)) return saved;
+  } catch (e) {}
+  return structuredClone(DEFAULT_MENU);
+}
+function saveMenu() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(menu)); } catch (e) {}
+}
+
+// ---------- メニュー描画 ----------
+function renderChoices() {
+  const make = (list, name) => list.map((label, i) =>
+    `<label class="choice"><input type="checkbox" name="${name}" value="${i}"><span>${escapeHtml(label)}</span></label>`
+  ).join('');
+  $('syrup-choices').innerHTML = make(menu.syrups, 'syrup');
+  $('drink-choices').innerHTML = make(menu.drinks, 'drink');
+  $('base-price-label').textContent = yen(BASE_PRICE);
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---------- 現在選択中の内容 ----------
+function currentSelection() {
+  const checked = (name) => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((el) => Number(el.value));
+  const syrups = checked('syrup').map((i) => menu.syrups[i]);
+  const drinks = checked('drink').map((i) => menu.drinks[i]);
+  const ice = $('ice-yes').checked;
+  // 選んだ飲料1つにつき1杯。シロップとアイスは各杯に適用
+  return { syrups, drinks, cups: drinks.map((drink) => ({ syrups, drink, ice })) };
+}
+function cupPrice(cup) { return BASE_PRICE + (cup.ice ? ICE_PRICE : 0); }
+function cupName(cup) { return cup.syrups.length ? `${cup.syrups.join('・')} × ${cup.drink}` : cup.drink; }
+function allCups() { return [...cart, ...currentSelection().cups]; }
+function totalOf(cups) { return cups.reduce((sum, c) => sum + cupPrice(c), 0); }
+
+function cupLines(cup) {
+  let html = `<li><span>${escapeHtml(cupName(cup))}</span><span>${yen(BASE_PRICE)}</span></li>`;
+  if (cup.ice) html += `<li class="sub"><span>　└ アイストッピング</span><span>＋${yen(ICE_PRICE)}</span></li>`;
+  return html;
+}
+
+function renderSummary() {
+  const sel = currentSelection();
+  const cups = allCups();
+  let html = '';
+  if (cart.length) {
+    html += `<li class="group-head"><span>確定済み</span></li>` + cart.map(cupLines).join('');
+  }
+  if (sel.cups.length) {
+    if (cart.length) html += `<li class="group-head"><span>選択中</span></li>`;
+    html += sel.cups.map(cupLines).join('');
+  }
+  $('summary-list').innerHTML = html || '<li class="empty" style="display:block;border:none">右のメニューから<br>チェックしてください</li>';
+
+  $('warn').textContent = sel.syrups.length && !sel.drinks.length ? '割る飲料を1つ以上えらんでください' : '';
+  $('summary-total').textContent = yen(totalOf(cups));
+  $('to-checkout').disabled = cups.length === 0 || (sel.syrups.length > 0 && !sel.drinks.length);
+  $('add-cup').disabled = sel.cups.length === 0;
+}
+
+function clearSelection() {
+  document.querySelectorAll('#menu input[type=checkbox]').forEach((el) => (el.checked = false));
+  $('ice-no').checked = true;
+}
+
+// ---------- 会計 ----------
+function renderCheckout() {
+  const cups = allCups();
+  const total = totalOf(cups);
+  $('checkout-list').innerHTML = cups.map(cupLines).join('');
+  $('checkout-total').textContent = yen(total);
+  $('paid').textContent = yen(paid);
+  const change = paid - total;
+  const changeEl = $('change');
+  if (paid === 0) { changeEl.textContent = '—'; changeEl.className = ''; }
+  else if (change < 0) { changeEl.textContent = `あと ${yen(-change)}`; changeEl.className = 'short'; }
+  else { changeEl.textContent = yen(change); changeEl.className = ''; }
+  $('finish').disabled = paid < total;
+}
+
+function show(screen) {
+  ['order-screen', 'checkout-screen', 'done-screen'].forEach((id) => $(id).classList.toggle('hidden', id !== screen));
+}
+
+// ---------- イベント ----------
+$('menu').addEventListener('change', (e) => {
+  // アイスの「あり」「なし」はどちらか一方だけ
+  if (e.target.id === 'ice-yes') $('ice-no').checked = !e.target.checked;
+  if (e.target.id === 'ice-no') $('ice-yes').checked = !e.target.checked;
+  renderSummary();
+});
+
+$('add-cup').addEventListener('click', () => {
+  cart.push(...currentSelection().cups);
+  clearSelection();
+  renderSummary();
+});
+
+$('to-checkout').addEventListener('click', () => { paid = 0; renderCheckout(); show('checkout-screen'); });
+$('back-to-order').addEventListener('click', () => show('order-screen'));
+
+document.querySelectorAll('[data-add]').forEach((b) =>
+  b.addEventListener('click', () => { paid += Number(b.dataset.add); renderCheckout(); })
+);
+$('pay-exact').addEventListener('click', () => { paid = totalOf(allCups()); renderCheckout(); });
+$('pay-clear').addEventListener('click', () => { paid = 0; renderCheckout(); });
+
+$('finish').addEventListener('click', () => {
+  const change = paid - totalOf(allCups());
+  $('done-msg').textContent = change > 0 ? `おつり ${yen(change)} をお受け取りください` : 'ご利用ありがとうございました';
+  show('done-screen');
+  cart = [];
+  clearSelection();
+  renderSummary();
+  setTimeout(() => show('order-screen'), 3000);
+});
+$('done-screen').addEventListener('click', () => show('order-screen'));
+
+// ---------- メニュー編集 ----------
+function editRow(value) {
+  const row = document.createElement('div');
+  row.className = 'edit-row';
+  row.innerHTML = `<input type="text" maxlength="20"><button type="button">削除</button>`;
+  row.querySelector('input').value = value;
+  row.querySelector('button').addEventListener('click', () => row.remove());
+  return row;
+}
+function openSettings() {
+  $('edit-syrups').replaceChildren(...menu.syrups.map(editRow));
+  $('edit-drinks').replaceChildren(...menu.drinks.map(editRow));
+  $('settings').classList.remove('hidden');
+}
+document.querySelectorAll('[data-add-to]').forEach((b) =>
+  b.addEventListener('click', () => {
+    const row = editRow('');
+    $(b.dataset.addTo).appendChild(row);
+    row.querySelector('input').focus();
+  })
+);
+$('open-settings').addEventListener('click', openSettings);
+$('settings-cancel').addEventListener('click', () => $('settings').classList.add('hidden'));
+$('settings-save').addEventListener('click', () => {
+  const read = (id) => [...$(id).querySelectorAll('input')].map((el) => el.value.trim()).filter(Boolean);
+  const drinks = read('edit-drinks');
+  if (!drinks.length) { alert('割る飲料・単品は1つ以上必要です'); return; }
+  menu = { syrups: read('edit-syrups'), drinks };
+  saveMenu();
+  clearSelection();
+  renderChoices();
+  renderSummary();
+  $('settings').classList.add('hidden');
+});
+
+renderChoices();
+renderSummary();
+</script>
+</body>
+</html>
