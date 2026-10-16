@@ -177,9 +177,25 @@
   .tx-items { color: var(--muted); font-size: 14px; margin-top: 2px; }
   #tx-list { max-height: 70vh; overflow-y: auto; }
   .btn-danger { background: #ffe3e3; color: #c92a2a; }
+  .tx-head .status { font-size: 12px; font-weight: bold; border-radius: 999px; padding: 2px 8px; margin-left: 6px; background: #f1e6d8; color: var(--muted); }
+  .tx-head .status.s-new { background: #fff4e6; color: var(--accent-dark); }
+  .tx-head .status.s-making { background: #e7f5ff; color: var(--syrup); }
+  .tx-head .status.s-done { background: #ebfbee; color: var(--drink); }
+  .tx-head .status.s-pending { background: #fff3bf; color: #e67700; }
+
+  /* ===== 連携 ===== */
+  .conn { display: inline-block; font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .conn.online { color: var(--drink); }
+  .conn.offline { color: #e67700; }
+  .conn.error { color: #c92a2a; font-weight: bold; }
+  #done-number { font-size: 30px; color: var(--ink); font-weight: bold; min-height: 1.3em; }
+  .link-box label { display: block; margin: 12px 0 4px; font-weight: bold; font-size: 14px; }
+  .link-box input { width: 100%; padding: 10px 12px; font-size: 16px; border: 2px solid var(--line); border-radius: 8px; }
+  .link-box .note { color: var(--muted); font-size: 13px; line-height: 1.6; }
+  #link-result { min-height: 1.4em; margin-top: 10px; font-size: 14px; }
 
   /* ===== 設定 ===== */
-  #settings {
+  #settings, #link-settings {
     position: fixed; inset: 0; background: rgba(43,33,24,.5);
     display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10;
   }
@@ -222,8 +238,10 @@
       <div>
         <h1>メニューを選んでください</h1>
         <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋100円)</div>
+        <span class="conn hidden" id="conn-status"></span>
       </div>
       <div>
+        <button class="gear" id="open-link">🔗 連携設定</button>
         <button class="gear" id="open-history">📋 会計履歴</button>
         <button class="gear" id="open-settings">⚙ メニュー編集</button>
       </div>
@@ -263,6 +281,7 @@
 <!-- 完了画面 -->
 <div id="done-screen" class="hidden">
   <h1>ありがとうございました!</h1>
+  <div id="done-number"></div>
   <p>ご利用ありがとうございました</p>
 </div>
 
@@ -312,7 +331,7 @@
 <div id="settings" class="hidden">
   <div class="settings-box">
     <h2>メニュー編集</h2>
-    <div class="price-note">追加・名前の変更・削除ができます。保存するとこの端末に記録されます。</div>
+    <div class="price-note" id="settings-note">追加・名前の変更・削除ができます。保存するとこの端末に記録されます。</div>
     <div class="settings-cols">
       <div>
         <h3>シロップ</h3>
@@ -332,6 +351,29 @@
   </div>
 </div>
 
+<!-- グループチャットとの連携設定 -->
+<div id="link-settings" class="hidden">
+  <div class="settings-box link-box">
+    <h2>🔗 グループチャットと連携</h2>
+    <p class="note">
+      連携すると、会計完了した注文がグループチャットの「🧾 オーダー」画面に届きます。
+      メニューと会計履歴は連携した全ての POS 端末で共有され、リアルタイムに更新されます。<br>
+      グループチャットの管理者が「グループ設定 → POS連携」で表示する内容を入力してください。
+    </p>
+    <label for="link-server">サーバーの URL</label>
+    <input type="url" id="link-server" placeholder="https://〜.onrender.com" autocomplete="off">
+    <label for="link-code">接続コード</label>
+    <input type="text" id="link-code" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="link-result"></div>
+    <p class="note">電波が途切れても会計はこの端末に保存され、つながったときに自動で送信されます。連携中はこの端末だけの会計履歴は表示されません(連携を解除すると元に戻ります)。</p>
+    <div class="settings-actions">
+      <button class="btn btn-sub" id="link-cancel">閉じる</button>
+      <button class="btn btn-sub" id="link-remove">連携を解除</button>
+      <button class="btn btn-primary" id="link-save">保存して接続</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const BASE_PRICE = 400;
 const ICE_PRICE = 100;
@@ -345,7 +387,7 @@ const HISTORY_KEY = 'yatai-pos-history';
 
 let menu = loadMenu();
 let cart = [];      // 確定済みの杯 { syrups:[], drink, ice }
-let history = loadHistory();   // 会計履歴 [{ time, cups:[{ syrups, drink, ice, price }], total }]
+let history = loadHistory();   // 会計履歴 [{ time, cups:[{ syrups, drink, ice, price }], total }](連携していないときに使う)
 
 const $ = (id) => document.getElementById(id);
 const yen = (n) => n.toLocaleString('ja-JP') + '円';
@@ -369,6 +411,209 @@ function loadHistory() {
 }
 function saveHistory() {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+}
+
+// ---------- グループチャットとの連携 ----------
+// 連携中はメニューと会計履歴をサーバーで共有し、全端末にリアルタイムで反映する。
+// 会計はまず送信待ち(outbox)としてこの端末に保存し、送れたら消す(電波が悪くても会計を失わない)。
+const LINK_KEY = 'yatai-pos-link';
+const OUTBOX_KEY = 'yatai-pos-outbox';
+const ORDER_STATUS = { new: '未着手', making: '作成中', done: '提供済み' };
+
+let link = loadJSON(LINK_KEY, null);     // { server, code } | null
+let outbox = loadJSON(OUTBOX_KEY, []);   // 送信待ちの会計 [{ clientId, createdAt, cups }]
+let serverOrders = [];                   // サーバーのオーダー(新しい順)
+let conn = { state: 'off', groupName: '', error: '' }; // off | connecting | online | offline | error
+let socket = null;
+let lastCheckoutId = null;
+
+function loadJSON(key, fallback) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return v ?? fallback;
+  } catch (e) { return fallback; }
+}
+function saveJSON(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {}
+}
+const serverBase = () => link.server.replace(/\/+$/, '');
+
+async function posApi(method, path, body) {
+  const res = await fetch(`${serverBase()}/api/pos${path}`, {
+    method,
+    headers: { authorization: `Bearer ${link.code}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `エラーが発生しました (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function setConn(state, error = '') {
+  conn.state = state;
+  conn.error = error;
+  renderConn();
+}
+
+function renderConn() {
+  const el = $('conn-status');
+  const waiting = outbox.length ? `・未送信 ${outbox.length}件` : '';
+  const text = {
+    off: '',
+    connecting: `⏳ グループチャットに接続中…${waiting}`,
+    online: `🟢 ${conn.groupName} と連携中${waiting}`,
+    offline: `🟠 オフライン${waiting || ''}(つながると自動で送信します)`,
+    error: `🔴 ${conn.error}`,
+  }[conn.state];
+  el.textContent = text;
+  el.className = `conn ${conn.state}`;
+  el.classList.toggle('hidden', !text);
+}
+
+/** サーバーの Socket.IO クライアントを読み込む */
+function loadSocketIo() {
+  if (window.io) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = `${serverBase()}/socket.io/socket.io.js`;
+    sc.onload = resolve;
+    sc.onerror = () => { sc.remove(); reject(new Error('サーバーに接続できません')); };
+    document.head.appendChild(sc);
+  });
+}
+
+function disconnect() {
+  if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
+}
+
+async function connect() {
+  disconnect();
+  if (!link) { setConn('off'); return; }
+  setConn('connecting');
+  try {
+    await resync();
+    await loadSocketIo();
+  } catch (err) {
+    if (err.status === 401) return setConn('error', '接続コードが無効です。「🔗 連携設定」を確認してください');
+    return setConn('offline');  // 定期的に connect() をやり直す
+  }
+  if (!link) return;
+  socket = io(`${serverBase()}/pos`, { auth: { token: link.code }, transports: ['websocket'] });
+  socket.on('connect', async () => {
+    try {
+      await resync(); // 切断中の変更を取り込む
+      setConn('online');
+      flushOutbox();
+    } catch (err) {
+      setConn('offline');
+    }
+  });
+  socket.on('disconnect', (reason) => {
+    // サーバーから切られた(接続コードの再発行など)ときは自動で再接続されないので、作り直す
+    if (reason === 'io server disconnect') disconnect();
+    if (conn.state !== 'error') setConn('offline');
+  });
+  socket.on('connect_error', (err) => {
+    if (err.message === 'unauthorized') {
+      disconnect();
+      setConn('error', '接続コードが無効です。「🔗 連携設定」を確認してください');
+    } else setConn('offline');
+  });
+  socket.on('order:new', upsertOrder);
+  socket.on('order:updated', upsertOrder);
+  socket.on('orders:cleared', () => { serverOrders = []; refreshHistory(); });
+  socket.on('pos:menu', applyMenu);
+}
+
+/** サーバーの最新状態(メニュー・会計履歴)を取り込む */
+async function resync() {
+  const st = await posApi('GET', '/state');
+  conn.groupName = st.groupName;
+  serverOrders = st.orders;
+  // 初めて連携したときは、この端末のメニューをサーバーに登録する
+  if (st.menu) applyMenu(st.menu);
+  else await posApi('PUT', '/menu', menu);
+  refreshHistory();
+}
+
+function upsertOrder(order) {
+  const i = serverOrders.findIndex((o) => o.id === order.id);
+  if (i >= 0) serverOrders[i] = order;
+  else {
+    serverOrders.push(order);
+    serverOrders.sort((a, b) => b.id - a.id);
+  }
+  // 会計直後の完了画面にオーダー番号を表示する(お客さんの呼び出し用)
+  if (order.clientId === lastCheckoutId && !$('done-screen').classList.contains('hidden')) {
+    $('done-number').textContent = `注文番号 ${order.number}`;
+  }
+  refreshHistory();
+}
+
+let flushing = false;
+/** 送信待ちの会計を古い順に送る。同じ会計を再送してもサーバー側で重複しない */
+async function flushOutbox() {
+  if (!link || flushing || !outbox.length) return;
+  flushing = true;
+  try {
+    while (link && outbox.length) {
+      try {
+        const { order } = await posApi('POST', '/orders', outbox[0]);
+        upsertOrder(order);
+      } catch (err) {
+        if (err.status === 401) { setConn('error', '接続コードが無効です。「🔗 連携設定」を確認してください'); break; }
+        if (err.status !== 400) break; // 通信エラー: あとで再送する
+        console.error('送信できない会計を破棄しました', outbox[0], err); // 内容が不正(再送しても受け付けられない)
+      }
+      outbox.shift();
+      saveJSON(OUTBOX_KEY, outbox);
+    }
+  } finally {
+    flushing = false;
+    renderConn();
+    refreshHistory();
+  }
+}
+
+// つながらないときの再接続と、送れなかった会計の再送
+setInterval(() => {
+  if (!link || conn.state === 'error') return;
+  if (!socket && conn.state !== 'connecting') connect();
+  else if (conn.state === 'online') flushOutbox();
+}, 15000);
+
+/** メニューを差し替える(選択中の項目は名前で選び直す) */
+function applyMenu(m) {
+  const picked = (name, list) => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((el) => list[Number(el.value)]);
+  const syrups = picked('syrup', menu.syrups);
+  const drinks = picked('drink', menu.drinks);
+  menu = { syrups: m.syrups, drinks: m.drinks };
+  saveMenu();
+  renderChoices();
+  document.querySelectorAll('input[name="syrup"]').forEach((el) => (el.checked = syrups.includes(menu.syrups[Number(el.value)])));
+  document.querySelectorAll('input[name="drink"]').forEach((el) => (el.checked = drinks.includes(menu.drinks[Number(el.value)])));
+  renderSummary();
+}
+
+/** 会計履歴(古い順)。連携中はサーバーの履歴 + 送信待ちの会計 */
+function historyList() {
+  if (!link) return history;
+  const sum = (cups) => cups.reduce((t, c) => t + c.price, 0);
+  return [
+    ...[...serverOrders].reverse().map((o) => ({ time: new Date(o.createdAt).toISOString(), cups: o.cups, total: o.total, number: o.number, status: o.status })),
+    ...outbox.map((x) => ({ time: new Date(x.createdAt).toISOString(), cups: x.cups, total: sum(x.cups), pending: true })),
+  ];
+}
+
+function refreshHistory() {
+  if (!$('history-screen').classList.contains('hidden')) renderHistory();
 }
 
 // ---------- メニュー描画 ----------
@@ -461,6 +706,7 @@ function formatTime(iso) {
 }
 
 function renderHistory() {
+  const history = historyList();
   const items = new Map();    // 組み合わせ別(シロップ×飲料)
   const drinks = new Map();
   const syrups = new Map();
@@ -496,10 +742,15 @@ function renderHistory() {
   $('tx-list').innerHTML = history.length
     ? [...history].reverse().map((tx, i) => `
       <div class="tx">
-        <div class="tx-head"><span>#${history.length - i} <span class="time">${formatTime(tx.time)}</span></span><span>${yen(tx.total)}</span></div>
+        <div class="tx-head"><span>#${tx.number ?? history.length - i} <span class="time">${formatTime(tx.time)}</span>${txStatus(tx)}</span><span>${yen(tx.total)}</span></div>
         <div class="tx-items">${tx.cups.map((c) => escapeHtml(cupName(c)) + (c.ice ? '(アイス)' : '')).join(' / ')}</div>
       </div>`).join('')
     : '<p class="empty">まだ会計がありません</p>';
+}
+
+function txStatus(tx) {
+  if (tx.pending) return '<span class="status s-pending">未送信</span>';
+  return tx.status ? `<span class="status s-${tx.status}">${ORDER_STATUS[tx.status]}</span>` : '';
 }
 
 // ---------- イベント ----------
@@ -525,8 +776,18 @@ $('back-to-order').addEventListener('click', () => show('order-screen'));
 
 $('finish').addEventListener('click', () => {
   const cups = allCups().map((c) => ({ ...c, price: cupPrice(c) }));
-  history.push({ time: new Date().toISOString(), cups, total: totalOf(cups) });
-  saveHistory();
+  $('done-number').textContent = '';
+  if (link) {
+    // まず端末に保存してから送る(送れなかったら自動で再送)
+    lastCheckoutId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    outbox.push({ clientId: lastCheckoutId, createdAt: Date.now(), cups });
+    saveJSON(OUTBOX_KEY, outbox);
+    renderConn();
+    flushOutbox();
+  } else {
+    history.push({ time: new Date().toISOString(), cups, total: totalOf(cups) });
+    saveHistory();
+  }
   show('done-screen');
   cart = [];
   clearSelection();
@@ -537,11 +798,21 @@ $('done-screen').addEventListener('click', () => show('order-screen'));
 
 $('open-history').addEventListener('click', () => { renderHistory(); show('history-screen'); });
 $('close-history').addEventListener('click', () => show('order-screen'));
-$('clear-history').addEventListener('click', () => {
-  if (!history.length) return;
-  if (!confirm('会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
-  history = [];
-  saveHistory();
+$('clear-history').addEventListener('click', async () => {
+  if (!historyList().length) return;
+  if (link) {
+    if (!confirm('連携している全ての端末とグループチャットのオーダーから、会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
+    try {
+      await posApi('DELETE', '/orders');
+      serverOrders = [];
+    } catch (err) {
+      alert(`消去できませんでした: ${err.message}`);
+    }
+  } else {
+    if (!confirm('会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
+    history = [];
+    saveHistory();
+  }
   renderHistory();
 });
 
@@ -566,13 +837,28 @@ document.querySelectorAll('[data-add-to]').forEach((b) =>
     row.querySelector('input').focus();
   })
 );
-$('open-settings').addEventListener('click', openSettings);
+$('open-settings').addEventListener('click', () => {
+  $('settings-note').textContent = link
+    ? '追加・名前の変更・削除ができます。保存すると連携している全ての端末のメニューが変わります。'
+    : '追加・名前の変更・削除ができます。保存するとこの端末に記録されます。';
+  openSettings();
+});
 $('settings-cancel').addEventListener('click', () => $('settings').classList.add('hidden'));
-$('settings-save').addEventListener('click', () => {
+$('settings-save').addEventListener('click', async () => {
   const read = (id) => [...$(id).querySelectorAll('input')].map((el) => el.value.trim()).filter(Boolean);
   const drinks = read('edit-drinks');
   if (!drinks.length) { alert('割る飲料・単品は1つ以上必要です'); return; }
-  menu = { syrups: read('edit-syrups'), drinks };
+  const next = { syrups: read('edit-syrups'), drinks };
+  if (link) {
+    // サーバーに保存すると、全ての端末のメニューが変わる
+    try {
+      await posApi('PUT', '/menu', next);
+    } catch (err) {
+      alert(`保存できませんでした(連携中はつながっているときだけメニューを変更できます): ${err.message}`);
+      return;
+    }
+  }
+  menu = next;
   saveMenu();
   clearSelection();
   renderChoices();
@@ -580,8 +866,66 @@ $('settings-save').addEventListener('click', () => {
   $('settings').classList.add('hidden');
 });
 
+// ---------- 連携設定 ----------
+function openLinkSettings() {
+  $('link-server').value = link?.server ?? '';
+  $('link-code').value = link?.code ?? '';
+  $('link-result').textContent = '';
+  $('link-remove').classList.toggle('hidden', !link);
+  $('link-settings').classList.remove('hidden');
+}
+$('open-link').addEventListener('click', openLinkSettings);
+$('link-cancel').addEventListener('click', () => $('link-settings').classList.add('hidden'));
+$('link-remove').addEventListener('click', () => {
+  if (outbox.length && !confirm(`まだ送信できていない会計が ${outbox.length} 件あります。解除するとこれらは送信されません。よろしいですか?`)) return;
+  if (!outbox.length && !confirm('連携を解除しますか?この端末だけでの会計に戻ります。')) return;
+  link = null;
+  outbox = [];
+  saveJSON(LINK_KEY, null);
+  saveJSON(OUTBOX_KEY, outbox);
+  disconnect();
+  setConn('off');
+  $('link-settings').classList.add('hidden');
+});
+$('link-save').addEventListener('click', async () => {
+  const server = $('link-server').value.trim().replace(/\/+$/, '');
+  const code = $('link-code').value.trim();
+  const result = $('link-result');
+  if (!/^https?:\/\/[^/]+/.test(server) || !code) {
+    result.textContent = 'サーバーの URL(https:// から)と接続コードを入力してください';
+    result.style.color = '#c92a2a';
+    return;
+  }
+  const prev = link;
+  link = { server, code };
+  result.style.color = 'var(--muted)';
+  result.textContent = '接続を確認しています…';
+  try {
+    await posApi('GET', '/state');
+  } catch (err) {
+    link = prev;
+    result.style.color = '#c92a2a';
+    result.textContent = err.status ? err.message : 'サーバーに接続できません。URL と電波を確認してください';
+    return;
+  }
+  saveJSON(LINK_KEY, link);
+  $('link-settings').classList.add('hidden');
+  connect();
+});
+
+// 管理者が作った「設定済みリンク」(?server=…&code=…)で開いたときは自動で連携する
+(function readLinkParams() {
+  const p = new URLSearchParams(location.search);
+  if (p.get('server') && p.get('code')) {
+    link = { server: p.get('server').replace(/\/+$/, ''), code: p.get('code') };
+    saveJSON(LINK_KEY, link);
+    window.history.replaceState(null, '', location.pathname);
+  }
+})();
+
 renderChoices();
 renderSummary();
+connect();
 </script>
 </body>
 </html>
