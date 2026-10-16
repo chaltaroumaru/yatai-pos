@@ -151,6 +151,33 @@
   #done-screen h1 { font-size: 44px; margin: 0; }
   #done-screen p { font-size: 22px; margin: 0; color: var(--muted); }
 
+  /* ===== 会計履歴 ===== */
+  #history-screen { min-height: 100vh; padding: 20px; max-width: 1100px; margin: 0 auto; }
+  .history-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .history-head h1 { margin: 0; font-size: 26px; }
+  .history-head .btn { width: auto; margin: 0; padding: 10px 18px; font-size: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .stat { background: var(--panel); border: 2px solid var(--line); border-radius: 16px; padding: 14px 16px; }
+  .stat span { color: var(--muted); font-size: 14px; }
+  .stat strong { display: block; font-size: 30px; margin-top: 4px; }
+  .stat.main { border-color: var(--accent); }
+  .stat.main strong { color: var(--accent); font-size: 36px; }
+  .history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .history-grid .card { min-height: auto; }
+  .card h3 { margin: 0 0 8px; font-size: 17px; }
+  table.tally { width: 100%; border-collapse: collapse; font-size: 16px; }
+  table.tally th { text-align: left; color: var(--muted); font-weight: normal; font-size: 13px; border-bottom: 2px solid var(--line); padding: 6px 4px; }
+  table.tally td { padding: 8px 4px; border-bottom: 1px dashed var(--line); }
+  table.tally .num { text-align: right; white-space: nowrap; }
+  table.tally tfoot td { font-weight: bold; border-bottom: none; border-top: 2px solid var(--ink); }
+  .sub-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .tx { border-bottom: 1px dashed var(--line); padding: 10px 0; }
+  .tx-head { display: flex; justify-content: space-between; font-weight: bold; }
+  .tx-head .time { color: var(--muted); font-weight: normal; font-size: 14px; }
+  .tx-items { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  #tx-list { max-height: 70vh; overflow-y: auto; }
+  .btn-danger { background: #ffe3e3; color: #c92a2a; }
+
   /* ===== 設定 ===== */
   #settings {
     position: fixed; inset: 0; background: rgba(43,33,24,.5);
@@ -172,6 +199,8 @@
     #summary-list { min-height: 90px; }
     #checkout-screen { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
     .settings-cols { grid-template-columns: 1fr; }
+    .history-grid { grid-template-columns: 1fr; }
+    .stat strong, .stat.main strong { font-size: 22px; }
   }
 </style>
 </head>
@@ -194,7 +223,10 @@
         <h1>メニューを選んでください</h1>
         <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋100円)</div>
       </div>
-      <button class="gear" id="open-settings">⚙ メニュー編集</button>
+      <div>
+        <button class="gear" id="open-history">📋 会計履歴</button>
+        <button class="gear" id="open-settings">⚙ メニュー編集</button>
+      </div>
     </div>
 
     <section class="block" id="syrup-block">
@@ -234,6 +266,48 @@
   <p>ご利用ありがとうございました</p>
 </div>
 
+<!-- 会計履歴 -->
+<div id="history-screen" class="hidden">
+  <div class="history-head">
+    <h1>会計履歴</h1>
+    <div>
+      <button class="btn btn-danger" id="clear-history">履歴をすべて消去</button>
+      <button class="btn btn-primary" id="close-history">← 注文画面に戻る</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat main"><span>総会計</span><strong id="stat-total">0円</strong></div>
+    <div class="stat"><span>会計回数</span><strong id="stat-count">0回</strong></div>
+    <div class="stat"><span>販売杯数</span><strong id="stat-cups">0杯</strong></div>
+  </div>
+
+  <div class="history-grid">
+    <div class="card">
+      <h3>注文内容(項目別)</h3>
+      <table class="tally">
+        <thead><tr><th>項目</th><th class="num">数</th><th class="num">金額</th></tr></thead>
+        <tbody id="tally-items"></tbody>
+        <tfoot><tr><td>合計</td><td class="num" id="tally-count"></td><td class="num" id="tally-total"></td></tr></tfoot>
+      </table>
+      <div class="sub-tables">
+        <div>
+          <h3>飲料別</h3>
+          <table class="tally"><tbody id="tally-drinks"></tbody></table>
+        </div>
+        <div>
+          <h3>シロップ別</h3>
+          <table class="tally"><tbody id="tally-syrups"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>会計ごとの履歴(新しい順)</h3>
+      <div id="tx-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- メニュー編集 -->
 <div id="settings" class="hidden">
   <div class="settings-box">
@@ -267,8 +341,11 @@ const DEFAULT_MENU = {
   drinks: ['炭酸', 'ジンジャー', 'オレンジ', 'コーラ', 'コーヒー', '紅茶'],
 };
 
+const HISTORY_KEY = 'yatai-pos-history';
+
 let menu = loadMenu();
 let cart = [];      // 確定済みの杯 { syrups:[], drink, ice }
+let history = loadHistory();   // 会計履歴 [{ time, cups:[{ syrups, drink, ice, price }], total }]
 
 const $ = (id) => document.getElementById(id);
 const yen = (n) => n.toLocaleString('ja-JP') + '円';
@@ -282,6 +359,16 @@ function loadMenu() {
 }
 function saveMenu() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(menu)); } catch (e) {}
+}
+function loadHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    if (Array.isArray(saved)) return saved;
+  } catch (e) {}
+  return [];
+}
+function saveHistory() {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
 }
 
 // ---------- メニュー描画 ----------
@@ -350,7 +437,69 @@ function renderCheckout() {
 }
 
 function show(screen) {
-  ['order-screen', 'checkout-screen', 'done-screen'].forEach((id) => $(id).classList.toggle('hidden', id !== screen));
+  ['order-screen', 'checkout-screen', 'done-screen', 'history-screen'].forEach((id) => $(id).classList.toggle('hidden', id !== screen));
+}
+
+// ---------- 会計履歴 ----------
+function cupCount(map, key, amount) {
+  const row = map.get(key) || { count: 0, amount: 0 };
+  row.count += 1;
+  row.amount += amount;
+  map.set(key, row);
+}
+function tallyRows(map, unit, withAmount) {
+  const rows = [...map.entries()].sort((a, b) => b[1].count - a[1].count);
+  if (!rows.length) return `<tr><td class="empty-cell" style="color:var(--muted)">まだありません</td></tr>`;
+  return rows.map(([name, r]) =>
+    `<tr><td>${escapeHtml(name)}</td><td class="num">${r.count}${unit}</td>${withAmount ? `<td class="num">${yen(r.amount)}</td>` : ''}</tr>`
+  ).join('');
+}
+function formatTime(iso) {
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderHistory() {
+  const items = new Map();    // 組み合わせ別(シロップ×飲料)
+  const drinks = new Map();
+  const syrups = new Map();
+  let cupsTotal = 0;
+  let iceCount = 0;
+  let iceAmount = 0;
+  let grandTotal = 0;
+
+  history.forEach((tx) => {
+    grandTotal += tx.total;
+    tx.cups.forEach((cup) => {
+      cupsTotal += 1;
+      const base = cup.price - (cup.ice ? ICE_PRICE : 0);
+      cupCount(items, cupName(cup), base);
+      cupCount(drinks, cup.drink, 0);
+      cupCount(syrups, cup.syrups.length ? cup.syrups.join('・') : 'シロップなし', 0);
+      if (cup.ice) { iceCount += 1; iceAmount += ICE_PRICE; }
+    });
+  });
+
+  $('stat-total').textContent = yen(grandTotal);
+  $('stat-count').textContent = `${history.length}回`;
+  $('stat-cups').textContent = `${cupsTotal}杯`;
+
+  let itemRows = tallyRows(items, '杯', true);
+  if (iceCount) itemRows += `<tr><td>アイストッピング</td><td class="num">${iceCount}個</td><td class="num">${yen(iceAmount)}</td></tr>`;
+  $('tally-items').innerHTML = itemRows;
+  $('tally-count').textContent = `${cupsTotal}杯`;
+  $('tally-total').textContent = yen(grandTotal);
+  $('tally-drinks').innerHTML = tallyRows(drinks, '杯', false);
+  $('tally-syrups').innerHTML = tallyRows(syrups, '杯', false);
+
+  $('tx-list').innerHTML = history.length
+    ? [...history].reverse().map((tx, i) => `
+      <div class="tx">
+        <div class="tx-head"><span>#${history.length - i} <span class="time">${formatTime(tx.time)}</span></span><span>${yen(tx.total)}</span></div>
+        <div class="tx-items">${tx.cups.map((c) => escapeHtml(cupName(c)) + (c.ice ? '(アイス)' : '')).join(' / ')}</div>
+      </div>`).join('')
+    : '<p class="empty">まだ会計がありません</p>';
 }
 
 // ---------- イベント ----------
@@ -375,13 +524,26 @@ $('to-checkout').addEventListener('click', () => { renderCheckout(); show('check
 $('back-to-order').addEventListener('click', () => show('order-screen'));
 
 $('finish').addEventListener('click', () => {
+  const cups = allCups().map((c) => ({ ...c, price: cupPrice(c) }));
+  history.push({ time: new Date().toISOString(), cups, total: totalOf(cups) });
+  saveHistory();
   show('done-screen');
   cart = [];
   clearSelection();
   renderSummary();
-  setTimeout(() => show('order-screen'), 3000);
+  setTimeout(() => { if (!$('done-screen').classList.contains('hidden')) show('order-screen'); }, 3000);
 });
 $('done-screen').addEventListener('click', () => show('order-screen'));
+
+$('open-history').addEventListener('click', () => { renderHistory(); show('history-screen'); });
+$('close-history').addEventListener('click', () => show('order-screen'));
+$('clear-history').addEventListener('click', () => {
+  if (!history.length) return;
+  if (!confirm('会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
+  history = [];
+  saveHistory();
+  renderHistory();
+});
 
 // ---------- メニュー編集 ----------
 function editRow(value) {
