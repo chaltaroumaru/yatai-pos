@@ -188,14 +188,40 @@
   .conn.online { color: var(--drink); }
   .conn.offline { color: #e67700; }
   .conn.error { color: #c92a2a; font-weight: bold; }
-  #done-number { font-size: 30px; color: var(--ink); font-weight: bold; min-height: 1.3em; }
+  #done-number { min-height: 1.3em; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #done-number .call-label { font-size: 22px; color: var(--muted); font-weight: bold; }
+  #done-number .call { font-size: 120px; line-height: 1; font-weight: 900; color: var(--accent); }
+  #done-number .order-no { font-size: 16px; color: var(--muted); }
+  #done-number .waiting { font-size: 18px; color: var(--muted); }
+  .last-call { display: inline-block; margin-left: 10px; font-size: 13px; color: var(--muted); }
+  .last-call b { color: var(--accent); font-size: 16px; }
+
+  /* 売り切れ */
+  .choice.soldout > span { background: #f3ede6; color: #b8a998; border-style: dashed; text-decoration: line-through; cursor: not-allowed; }
+  .choice.soldout > span::before { display: none; }
+  .choice .so { text-decoration: none; display: inline-block; margin-left: 8px; font-size: 13px; font-style: normal; color: #fff; background: #c92a2a; border-radius: 999px; padding: 2px 8px; }
+  .so-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 4px; border-bottom: 1px dashed var(--line); font-size: 17px; }
+  .so-row button { border: none; border-radius: 999px; padding: 8px 14px; font-weight: bold; font-size: 15px; min-width: 120px; }
+  .so-row button.on { background: #ebfbee; color: var(--drink); }
+  .so-row button.off { background: #c92a2a; color: #fff; }
+
+  /* 暗証番号 */
+  .pin-box { width: min(360px, 100%); text-align: center; }
+  .pin-dots { font-size: 34px; letter-spacing: 10px; min-height: 48px; margin: 8px 0; }
+  .pin-error { color: #c92a2a; min-height: 1.4em; font-size: 14px; }
+  .pin-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+  .pin-keys button { border: 2px solid var(--line); background: #fffdfa; border-radius: 14px; font-size: 26px; font-weight: bold; padding: 14px 0; }
+  .pin-keys button:active { background: #f1e6d8; }
+  .pin-keys .ok { background: var(--accent); color: #fff; border-color: var(--accent); font-size: 20px; }
+  @keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+  .shake { animation: shake .2s 2; }
   .link-box label { display: block; margin: 12px 0 4px; font-weight: bold; font-size: 14px; }
   .link-box input { width: 100%; padding: 10px 12px; font-size: 16px; border: 2px solid var(--line); border-radius: 8px; }
   .link-box .note { color: var(--muted); font-size: 13px; line-height: 1.6; }
   #link-result { min-height: 1.4em; margin-top: 10px; font-size: 14px; }
 
   /* ===== 設定 ===== */
-  #settings, #link-settings {
+  #settings, #link-settings, #soldout-settings, #pin-pad {
     position: fixed; inset: 0; background: rgba(43,33,24,.5);
     display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10;
   }
@@ -239,8 +265,10 @@
         <h1>メニューを選んでください</h1>
         <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋100円)</div>
         <span class="conn hidden" id="conn-status"></span>
+        <span class="last-call hidden" id="last-call"></span>
       </div>
       <div>
+        <button class="gear" id="open-soldout">🚫 売り切れ</button>
         <button class="gear" id="open-link">🔗 連携設定</button>
         <button class="gear" id="open-history">📋 会計履歴</button>
         <button class="gear" id="open-settings">⚙ メニュー編集</button>
@@ -351,6 +379,36 @@
   </div>
 </div>
 
+<!-- 売り切れ(暗証番号なしで操作できる) -->
+<div id="soldout-settings" class="hidden">
+  <div class="settings-box">
+    <h2>🚫 売り切れの設定</h2>
+    <div class="price-note" id="soldout-note"></div>
+    <div class="settings-cols">
+      <div><h3>割る飲料・単品</h3><div id="soldout-drinks"></div></div>
+      <div><h3>シロップ</h3><div id="soldout-syrups"></div></div>
+    </div>
+    <div class="settings-actions"><button class="btn btn-primary" id="soldout-close">閉じる</button></div>
+  </div>
+</div>
+
+<!-- スタッフ用の暗証番号 -->
+<div id="pin-pad" class="hidden">
+  <div class="settings-box pin-box">
+    <h2>🔒 スタッフ用</h2>
+    <div class="price-note">暗証番号を入力してください</div>
+    <div class="pin-dots" id="pin-dots"></div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-keys" id="pin-keys">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="back">⌫</button><button data-k="0">0</button><button data-k="ok" class="ok">OK</button>
+    </div>
+    <div class="settings-actions"><button class="btn btn-sub" id="pin-cancel">キャンセル</button></div>
+  </div>
+</div>
+
 <!-- グループチャットとの連携設定 -->
 <div id="link-settings" class="hidden">
   <div class="settings-box link-box">
@@ -426,6 +484,12 @@ let serverOrders = [];                   // サーバーのオーダー(新し�
 let conn = { state: 'off', groupName: '', error: '' }; // off | connecting | online | offline | error
 let socket = null;
 let lastCheckoutId = null;
+const SOLDOUT_KEY = 'yatai-pos-soldout';
+const PIN_KEY = 'yatai-pos-pin';
+const CALL_CYCLE = 15; // お呼び出し番号は 1〜15 を繰り返す
+let soldOut = loadJSON(SOLDOUT_KEY, { syrups: [], drinks: [] }); // 売り切れの項目名
+let pin = loadJSON(PIN_KEY, null);  // 連携中の暗証番号 { salt, hash }(オフラインでも照合できるよう保存)
+const callNumberOf = (number) => ((number - 1) % CALL_CYCLE) + 1;
 
 function loadJSON(key, fallback) {
   try {
@@ -529,7 +593,18 @@ async function connect() {
   socket.on('order:new', upsertOrder);
   socket.on('order:updated', upsertOrder);
   socket.on('orders:cleared', () => { serverOrders = []; refreshHistory(); });
-  socket.on('pos:menu', applyMenu);
+  socket.on('pos:settings', applySettings);
+}
+
+/** サーバーで共有している設定(メニュー・売り切れ・暗証番号)を反映する */
+function applySettings(st) {
+  pin = st.pin ?? null;
+  saveJSON(PIN_KEY, pin);
+  soldOut = st.soldOut ?? { syrups: [], drinks: [] };
+  saveJSON(SOLDOUT_KEY, soldOut);
+  if (st.menu) applyMenu(st.menu);
+  else { renderChoices(); renderSummary(); }
+  renderSoldOutList();
 }
 
 /** サーバーの最新状態(メニュー・会計履歴)を取り込む */
@@ -537,9 +612,9 @@ async function resync() {
   const st = await posApi('GET', '/state');
   conn.groupName = st.groupName;
   serverOrders = st.orders;
+  applySettings(st);
   // 初めて連携したときは、この端末のメニューをサーバーに登録する
-  if (st.menu) applyMenu(st.menu);
-  else await posApi('PUT', '/menu', menu);
+  if (!st.menu) await posApi('PUT', '/menu', menu);
   refreshHistory();
 }
 
@@ -550,10 +625,8 @@ function upsertOrder(order) {
     serverOrders.push(order);
     serverOrders.sort((a, b) => b.id - a.id);
   }
-  // 会計直後の完了画面にオーダー番号を表示する(お客さんの呼び出し用)
-  if (order.clientId === lastCheckoutId && !$('done-screen').classList.contains('hidden')) {
-    $('done-number').textContent = `注文番号 ${order.number}`;
-  }
+  // 会計直後の完了画面にお呼び出し番号を表示する
+  if (order.clientId === lastCheckoutId) showCallNumber(order.callNumber ?? callNumberOf(order.number), order.number);
   refreshHistory();
 }
 
@@ -597,8 +670,8 @@ function applyMenu(m) {
   menu = { syrups: m.syrups, drinks: m.drinks };
   saveMenu();
   renderChoices();
-  document.querySelectorAll('input[name="syrup"]').forEach((el) => (el.checked = syrups.includes(menu.syrups[Number(el.value)])));
-  document.querySelectorAll('input[name="drink"]').forEach((el) => (el.checked = drinks.includes(menu.drinks[Number(el.value)])));
+  document.querySelectorAll('input[name="syrup"]:not(:disabled)').forEach((el) => (el.checked = syrups.includes(menu.syrups[Number(el.value)])));
+  document.querySelectorAll('input[name="drink"]:not(:disabled)').forEach((el) => (el.checked = drinks.includes(menu.drinks[Number(el.value)])));
   renderSummary();
 }
 
@@ -607,7 +680,7 @@ function historyList() {
   if (!link) return history;
   const sum = (cups) => cups.reduce((t, c) => t + c.price, 0);
   return [
-    ...[...serverOrders].reverse().map((o) => ({ time: new Date(o.createdAt).toISOString(), cups: o.cups, total: o.total, number: o.number, status: o.status })),
+    ...[...serverOrders].reverse().map((o) => ({ time: new Date(o.createdAt).toISOString(), cups: o.cups, total: o.total, number: o.number, callNumber: o.callNumber ?? callNumberOf(o.number), status: o.status })),
     ...outbox.map((x) => ({ time: new Date(x.createdAt).toISOString(), cups: x.cups, total: sum(x.cups), pending: true })),
   ];
 }
@@ -618,11 +691,13 @@ function refreshHistory() {
 
 // ---------- メニュー描画 ----------
 function renderChoices() {
-  const make = (list, name) => list.map((label, i) =>
-    `<label class="choice"><input type="checkbox" name="${name}" value="${i}"><span>${escapeHtml(label)}</span></label>`
+  // 売り切れの項目は選べないようにする
+  const make = (list, name, out) => list.map((label, i) => out.includes(label)
+    ? `<label class="choice soldout"><input type="checkbox" name="${name}" value="${i}" disabled><span>${escapeHtml(label)}<em class="so">売り切れ</em></span></label>`
+    : `<label class="choice"><input type="checkbox" name="${name}" value="${i}"><span>${escapeHtml(label)}</span></label>`
   ).join('');
-  $('syrup-choices').innerHTML = make(menu.syrups, 'syrup');
-  $('drink-choices').innerHTML = make(menu.drinks, 'drink');
+  $('syrup-choices').innerHTML = make(menu.syrups, 'syrup', soldOut.syrups || []);
+  $('drink-choices').innerHTML = make(menu.drinks, 'drink', soldOut.drinks || []);
   $('base-price-label').textContent = yen(BASE_PRICE);
 }
 function escapeHtml(s) {
@@ -742,10 +817,15 @@ function renderHistory() {
   $('tx-list').innerHTML = history.length
     ? [...history].reverse().map((tx, i) => `
       <div class="tx">
-        <div class="tx-head"><span>#${tx.number ?? history.length - i} <span class="time">${formatTime(tx.time)}</span>${txStatus(tx)}</span><span>${yen(tx.total)}</span></div>
+        <div class="tx-head"><span>${txNumber(tx, history.length - i)} <span class="time">${formatTime(tx.time)}</span>${txStatus(tx)}</span><span>${yen(tx.total)}</span></div>
         <div class="tx-items">${tx.cups.map((c) => escapeHtml(cupName(c)) + (c.ice ? '(アイス)' : '')).join(' / ')}</div>
       </div>`).join('')
     : '<p class="empty">まだ会計がありません</p>';
+}
+
+function txNumber(tx, fallback) {
+  const n = tx.number ?? fallback;
+  return tx.pending ? '#–' : `呼出 ${tx.callNumber ?? callNumberOf(n)} <span class="time">#${n}</span>`;
 }
 
 function txStatus(tx) {
@@ -776,7 +856,7 @@ $('back-to-order').addEventListener('click', () => show('order-screen'));
 
 $('finish').addEventListener('click', () => {
   const cups = allCups().map((c) => ({ ...c, price: cupPrice(c) }));
-  $('done-number').textContent = '';
+  $('done-number').replaceChildren();
   if (link) {
     // まず端末に保存してから送る(送れなかったら自動で再送)
     lastCheckoutId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -787,16 +867,34 @@ $('finish').addEventListener('click', () => {
   } else {
     history.push({ time: new Date().toISOString(), cups, total: totalOf(cups) });
     saveHistory();
+    showCallNumber(callNumberOf(history.length), history.length);
   }
   show('done-screen');
   cart = [];
   clearSelection();
   renderSummary();
-  setTimeout(() => { if (!$('done-screen').classList.contains('hidden')) show('order-screen'); }, 3000);
+  const id = lastCheckoutId;
+  // 電波が悪く番号が届かないとき
+  setTimeout(() => {
+    if (link && id === lastCheckoutId && !$('done-number').children.length) {
+      $('done-number').innerHTML = '<span class="waiting">お呼び出し番号は通信が回復すると表示されます。スタッフにお声がけください</span>';
+    }
+  }, 2500);
+  // お客さんが番号を確認できるよう少し長めに表示する
+  clearTimeout(doneTimer);
+  doneTimer = setTimeout(() => { if (!$('done-screen').classList.contains('hidden')) show('order-screen'); }, 8000);
 });
+let doneTimer = null;
+
+/** 完了画面と注文画面の上部にお呼び出し番号を表示する */
+function showCallNumber(call, number) {
+  $('done-number').innerHTML = `<span class="call-label">お呼び出し番号</span><span class="call">${call}</span><span class="order-no">注文番号 #${number}</span>`;
+  $('last-call').innerHTML = `直前のお呼び出し番号 <b>${call}</b>(#${number})`;
+  $('last-call').classList.remove('hidden');
+}
 $('done-screen').addEventListener('click', () => show('order-screen'));
 
-$('open-history').addEventListener('click', () => { renderHistory(); show('history-screen'); });
+$('open-history').addEventListener('click', () => requirePin(() => { renderHistory(); show('history-screen'); }));
 $('close-history').addEventListener('click', () => show('order-screen'));
 $('clear-history').addEventListener('click', async () => {
   if (!historyList().length) return;
@@ -837,12 +935,12 @@ document.querySelectorAll('[data-add-to]').forEach((b) =>
     row.querySelector('input').focus();
   })
 );
-$('open-settings').addEventListener('click', () => {
+$('open-settings').addEventListener('click', () => requirePin(() => {
   $('settings-note').textContent = link
     ? '追加・名前の変更・削除ができます。保存すると連携している全ての端末のメニューが変わります。'
     : '追加・名前の変更・削除ができます。保存するとこの端末に記録されます。';
   openSettings();
-});
+}));
 $('settings-cancel').addEventListener('click', () => $('settings').classList.add('hidden'));
 $('settings-save').addEventListener('click', async () => {
   const read = (id) => [...$(id).querySelectorAll('input')].map((el) => el.value.trim()).filter(Boolean);
@@ -874,7 +972,99 @@ function openLinkSettings() {
   $('link-remove').classList.toggle('hidden', !link);
   $('link-settings').classList.remove('hidden');
 }
-$('open-link').addEventListener('click', openLinkSettings);
+$('open-link').addEventListener('click', () => requirePin(openLinkSettings));
+
+// ---------- スタッフ用の暗証番号(連携中・設定済みのときだけ) ----------
+let unlockedUntil = 0;
+let pinAction = null;
+let pinInput = '';
+
+function requirePin(action) {
+  if (!link || !pin || Date.now() < unlockedUntil) return action();
+  pinAction = action;
+  pinInput = '';
+  renderPin('');
+  $('pin-pad').classList.remove('hidden');
+}
+function renderPin(error) {
+  $('pin-dots').textContent = '●'.repeat(pinInput.length) || '　';
+  $('pin-error').textContent = error;
+}
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function checkPin(value) {
+  // 端末内で照合する(オフラインでも使える)。照合できないブラウザではサーバーに問い合わせる
+  if (window.crypto?.subtle) return (await sha256Hex(pin.salt + value)) === pin.hash;
+  return (await posApi('POST', '/pin/check', { pin: value })).ok;
+}
+$('pin-keys').addEventListener('click', async (e) => {
+  const k = e.target.dataset?.k;
+  if (!k) return;
+  if (k === 'back') pinInput = pinInput.slice(0, -1);
+  else if (k !== 'ok') { if (pinInput.length < 6) pinInput += k; }
+  if (k !== 'ok') return renderPin('');
+  let ok = false;
+  try { ok = pinInput.length >= 4 && await checkPin(pinInput); } catch (err) { return renderPin('確認できませんでした。通信を確認してください'); }
+  if (!ok) {
+    pinInput = '';
+    renderPin('暗証番号が違います');
+    $('pin-pad').querySelector('.pin-box').classList.remove('shake');
+    void $('pin-pad').offsetWidth;
+    $('pin-pad').querySelector('.pin-box').classList.add('shake');
+    return;
+  }
+  // 続けて別の設定を開けるよう、2分間は再入力なしで開ける
+  unlockedUntil = Date.now() + 2 * 60 * 1000;
+  $('pin-pad').classList.add('hidden');
+  const action = pinAction;
+  pinAction = null;
+  action?.();
+});
+$('pin-cancel').addEventListener('click', () => { pinAction = null; $('pin-pad').classList.add('hidden'); });
+
+// ---------- 売り切れ(暗証番号なし) ----------
+function renderSoldOutList() {
+  if ($('soldout-settings').classList.contains('hidden')) return;
+  const rows = (kind) => menu[kind].length
+    ? menu[kind].map((name) => {
+        const out = (soldOut[kind] || []).includes(name);
+        return `<div class="so-row"><span>${escapeHtml(name)}</span><button data-kind="${kind}" data-name="${escapeHtml(name)}" class="${out ? 'off' : 'on'}">${out ? '売り切れ中' : '販売中'}</button></div>`;
+      }).join('')
+    : '<p class="empty">ありません</p>';
+  $('soldout-drinks').innerHTML = rows('drinks');
+  $('soldout-syrups').innerHTML = rows('syrups');
+  $('soldout-note').textContent = link
+    ? 'ボタンを押すと「販売中」⇔「売り切れ中」が切り替わります。連携している全ての端末とグループチャットにすぐ反映されます。'
+    : 'ボタンを押すと「販売中」⇔「売り切れ中」が切り替わります(この端末だけの設定です)。';
+}
+$('open-soldout').addEventListener('click', () => {
+  $('soldout-settings').classList.remove('hidden');
+  renderSoldOutList();
+});
+$('soldout-close').addEventListener('click', () => $('soldout-settings').classList.add('hidden'));
+$('soldout-settings').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-kind]');
+  if (!b) return;
+  const kind = b.dataset.kind;
+  const name = b.dataset.name;
+  const out = !(soldOut[kind] || []).includes(name);
+  if (link) {
+    b.disabled = true;
+    try {
+      const res = await posApi('PUT', '/sold-out', { kind, name, soldOut: out });
+      applySettings({ menu, soldOut: res.soldOut, pin });
+    } catch (err) {
+      alert(`変更できませんでした(つながっているときだけ変更できます): ${err.message}`);
+      b.disabled = false;
+    }
+    return;
+  }
+  const list = (soldOut[kind] || []).filter((n) => n !== name);
+  if (out) list.push(name);
+  applySettings({ menu, soldOut: { ...soldOut, [kind]: list }, pin });
+});
 $('link-cancel').addEventListener('click', () => $('link-settings').classList.add('hidden'));
 $('link-remove').addEventListener('click', () => {
   if (outbox.length && !confirm(`まだ送信できていない会計が ${outbox.length} 件あります。解除するとこれらは送信されません。よろしいですか?`)) return;
