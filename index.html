@@ -263,7 +263,7 @@
     <div class="menu-head">
       <div>
         <h1>メニューを選んでください</h1>
-        <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋100円)</div>
+        <div class="price-note">ドリンクはすべて <b id="base-price-label">400円</b>(アイストッピングは＋<span class="ice-price-label">50円</span>)</div>
         <span class="conn hidden" id="conn-status"></span>
         <span class="last-call hidden" id="last-call"></span>
       </div>
@@ -286,9 +286,9 @@
     </section>
 
     <section class="block" id="ice-block">
-      <h3>アイストッピング <span class="tag">＋100円</span></h3>
+      <h3>アイストッピング <span class="tag">＋<span class="ice-price-label">50円</span></span></h3>
       <div class="choices">
-        <label class="choice"><input type="checkbox" id="ice-yes"><span>あり<span class="plus">＋100円</span></span></label>
+        <label class="choice"><input type="checkbox" id="ice-yes"><span>あり<span class="plus">＋<span class="ice-price-label">50円</span></span></span></label>
         <label class="choice"><input type="checkbox" id="ice-no" checked><span>なし</span></label>
       </div>
     </section>
@@ -434,7 +434,7 @@
 
 <script>
 const BASE_PRICE = 400;
-const ICE_PRICE = 100;
+const ICE_PRICE = 50;
 const STORAGE_KEY = 'yatai-pos-menu';
 const DEFAULT_MENU = {
   syrups: ['ブルーキュラソー', 'カシス'],
@@ -699,6 +699,7 @@ function renderChoices() {
   $('syrup-choices').innerHTML = make(menu.syrups, 'syrup', soldOut.syrups || []);
   $('drink-choices').innerHTML = make(menu.drinks, 'drink', soldOut.drinks || []);
   $('base-price-label').textContent = yen(BASE_PRICE);
+  document.querySelectorAll('.ice-price-label').forEach((el) => (el.textContent = yen(ICE_PRICE)));
 }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
