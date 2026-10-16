@@ -133,8 +133,8 @@
   #checkout-screen {
     height: 100vh;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    grid-template-columns: min(640px, 100%);
+    justify-content: center;
     padding: 24px;
   }
   .card { background: var(--panel); border-radius: 18px; border: 2px solid var(--line); padding: 20px; display: flex; flex-direction: column; min-height: 0; }
@@ -143,12 +143,6 @@
   #checkout-list li { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--line); font-size: 18px; }
   #checkout-list li.sub { color: var(--muted); font-size: 15px; border-bottom: none; padding-top: 0; }
   .big-total { font-size: 48px; font-weight: bold; text-align: right; margin: 10px 0; }
-  .pay-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
-  .pay-buttons button { padding: 18px 0; border-radius: 12px; border: 2px solid var(--line); background: #fffdfa; font-size: 20px; font-weight: bold; }
-  .pay-buttons button:active { background: #f1e6d8; }
-  .money-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; padding: 8px 0; }
-  .money-row strong { font-size: 34px; }
-  #change.short { color: #c92a2a; }
 
   /* ===== 完了 ===== */
   #done-screen {
@@ -204,12 +198,12 @@
     </div>
 
     <section class="block" id="syrup-block">
-      <h3>シロップ <span class="tag">お好みで</span></h3>
+      <h3>シロップ <span class="tag">お好みで1つ</span></h3>
       <div class="choices" id="syrup-choices"></div>
     </section>
 
     <section class="block" id="drink-block">
-      <h3>割る飲料・単品 <span class="tag">1つ以上えらぶ</span></h3>
+      <h3>割る飲料・単品 <span class="tag">1つえらぶ</span></h3>
       <div class="choices" id="drink-choices"></div>
     </section>
 
@@ -229,29 +223,15 @@
     <h2>お会計</h2>
     <ul id="checkout-list"></ul>
     <div class="big-total" id="checkout-total">0円</div>
+    <button class="btn btn-primary" id="finish">会計完了</button>
     <button class="btn btn-sub" id="back-to-order">← 注文に戻る</button>
-  </div>
-  <div class="card">
-    <h2>お預かり</h2>
-    <div class="pay-buttons">
-      <button data-add="100">＋100</button>
-      <button data-add="500">＋500</button>
-      <button data-add="1000">＋1,000</button>
-      <button data-add="5000">＋5,000</button>
-      <button data-add="10000">＋10,000</button>
-      <button id="pay-exact">ちょうど</button>
-    </div>
-    <button class="btn btn-sub" id="pay-clear">お預かりをクリア</button>
-    <div class="money-row"><span>お預かり</span><strong id="paid">0円</strong></div>
-    <div class="money-row"><span>おつり</span><strong id="change">—</strong></div>
-    <button class="btn btn-primary" id="finish" disabled>会計完了</button>
   </div>
 </div>
 
 <!-- 完了画面 -->
 <div id="done-screen" class="hidden">
   <h1>ありがとうございました!</h1>
-  <p id="done-msg"></p>
+  <p>ご利用ありがとうございました</p>
 </div>
 
 <!-- メニュー編集 -->
@@ -289,7 +269,6 @@ const DEFAULT_MENU = {
 
 let menu = loadMenu();
 let cart = [];      // 確定済みの杯 { syrups:[], drink, ice }
-let paid = 0;
 
 const $ = (id) => document.getElementById(id);
 const yen = (n) => n.toLocaleString('ja-JP') + '円';
@@ -324,7 +303,7 @@ function currentSelection() {
   const syrups = checked('syrup').map((i) => menu.syrups[i]);
   const drinks = checked('drink').map((i) => menu.drinks[i]);
   const ice = $('ice-yes').checked;
-  // 選んだ飲料1つにつき1杯。シロップとアイスは各杯に適用
+  // 選んだ飲料が1杯になる。シロップとアイスはその杯に適用
   return { syrups, drinks, cups: drinks.map((drink) => ({ syrups, drink, ice })) };
 }
 function cupPrice(cup) { return BASE_PRICE + (cup.ice ? ICE_PRICE : 0); }
@@ -351,7 +330,7 @@ function renderSummary() {
   }
   $('summary-list').innerHTML = html || '<li class="empty" style="display:block;border:none">右のメニューから<br>チェックしてください</li>';
 
-  $('warn').textContent = sel.syrups.length && !sel.drinks.length ? '割る飲料を1つ以上えらんでください' : '';
+  $('warn').textContent = sel.syrups.length && !sel.drinks.length ? '割る飲料を1つえらんでください' : '';
   $('summary-total').textContent = yen(totalOf(cups));
   $('to-checkout').disabled = cups.length === 0 || (sel.syrups.length > 0 && !sel.drinks.length);
   $('add-cup').disabled = sel.cups.length === 0;
@@ -368,13 +347,6 @@ function renderCheckout() {
   const total = totalOf(cups);
   $('checkout-list').innerHTML = cups.map(cupLines).join('');
   $('checkout-total').textContent = yen(total);
-  $('paid').textContent = yen(paid);
-  const change = paid - total;
-  const changeEl = $('change');
-  if (paid === 0) { changeEl.textContent = '—'; changeEl.className = ''; }
-  else if (change < 0) { changeEl.textContent = `あと ${yen(-change)}`; changeEl.className = 'short'; }
-  else { changeEl.textContent = yen(change); changeEl.className = ''; }
-  $('finish').disabled = paid < total;
 }
 
 function show(screen) {
@@ -383,6 +355,10 @@ function show(screen) {
 
 // ---------- イベント ----------
 $('menu').addEventListener('change', (e) => {
+  // シロップ・飲料はそれぞれ1つだけ選べる(別の項目をチェックすると前の項目は外れる)
+  if (e.target.checked && (e.target.name === 'syrup' || e.target.name === 'drink')) {
+    document.querySelectorAll(`input[name="${e.target.name}"]`).forEach((el) => { if (el !== e.target) el.checked = false; });
+  }
   // アイスの「あり」「なし」はどちらか一方だけ
   if (e.target.id === 'ice-yes') $('ice-no').checked = !e.target.checked;
   if (e.target.id === 'ice-no') $('ice-yes').checked = !e.target.checked;
@@ -395,18 +371,10 @@ $('add-cup').addEventListener('click', () => {
   renderSummary();
 });
 
-$('to-checkout').addEventListener('click', () => { paid = 0; renderCheckout(); show('checkout-screen'); });
+$('to-checkout').addEventListener('click', () => { renderCheckout(); show('checkout-screen'); });
 $('back-to-order').addEventListener('click', () => show('order-screen'));
 
-document.querySelectorAll('[data-add]').forEach((b) =>
-  b.addEventListener('click', () => { paid += Number(b.dataset.add); renderCheckout(); })
-);
-$('pay-exact').addEventListener('click', () => { paid = totalOf(allCups()); renderCheckout(); });
-$('pay-clear').addEventListener('click', () => { paid = 0; renderCheckout(); });
-
 $('finish').addEventListener('click', () => {
-  const change = paid - totalOf(allCups());
-  $('done-msg').textContent = change > 0 ? `おつり ${yen(change)} をお受け取りください` : 'ご利用ありがとうございました';
   show('done-screen');
   cart = [];
   clearSelection();
