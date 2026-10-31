@@ -176,12 +176,17 @@
   table.tally .num { text-align: right; white-space: nowrap; }
   table.tally tfoot td { font-weight: bold; border-bottom: none; border-top: 2px solid var(--ink); }
   .sub-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .day-card { margin-bottom: 14px; }
+  .day-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); flex-wrap: wrap; }
+  .day-row:last-child { border-bottom: none; }
+  .day-row small { color: var(--muted); margin-left: 8px; }
+  .day-row button { border: none; border-radius: 10px; background: var(--drink); color: #fff; font-weight: bold; padding: 10px 14px; font-size: 15px; }
+  .multi { background: #fff4e6; color: var(--accent); border-radius: 999px; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
   .tx { border-bottom: 1px dashed var(--line); padding: 10px 0; }
   .tx-head { display: flex; justify-content: space-between; font-weight: bold; }
   .tx-head .time { color: var(--muted); font-weight: normal; font-size: 14px; }
   .tx-items { color: var(--muted); font-size: 14px; margin-top: 2px; }
   #tx-list { max-height: 70vh; overflow-y: auto; }
-  .btn-danger { background: #ffe3e3; color: #c92a2a; }
   .tx-head .status { font-size: 12px; font-weight: bold; border-radius: 999px; padding: 2px 8px; margin-left: 6px; background: #f1e6d8; color: var(--muted); }
   .tx-head .status.s-new { background: #fff4e6; color: var(--accent-dark); }
   .tx-head .status.s-making { background: #e7f5ff; color: var(--syrup); }
@@ -331,15 +336,19 @@
   <div class="history-head">
     <h1>会計履歴</h1>
     <div>
-      <button class="btn btn-danger" id="clear-history">履歴をすべて消去</button>
       <button class="btn btn-primary" id="close-history">← 注文画面に戻る</button>
     </div>
   </div>
 
   <div class="stats">
     <div class="stat main"><span>総会計</span><strong id="stat-total">0円</strong><small class="stat-note" id="stat-total-note"></small></div>
-    <div class="stat"><span>会計回数</span><strong id="stat-count">0回</strong></div>
-    <div class="stat"><span>販売杯数</span><strong id="stat-cups">0杯</strong></div>
+    <div class="stat"><span>会計数</span><strong id="stat-count">0件</strong></div>
+    <div class="stat"><span>オーダー数</span><strong id="stat-cups">0杯</strong><small class="stat-note" id="stat-multi-note"></small></div>
+  </div>
+
+  <div class="card day-card">
+    <h3>日別にExcelへ書き出す</h3>
+    <div id="day-list"></div>
   </div>
 
   <div class="history-grid">
@@ -831,8 +840,11 @@ function renderHistory() {
   const grandTotal = paidTotal + presaleAmount;
   $('stat-total').textContent = yen(grandTotal);
   $('stat-total-note').textContent = presaleCount ? `当日のお会計 ${yen(paidTotal)} ＋ 前売り券 ${yen(presaleAmount)}` : '';
-  $('stat-count').textContent = `${history.length}回`;
+  $('stat-count').textContent = `${history.length}件`;
   $('stat-cups').textContent = `${cupsTotal}杯`;
+  const multi = history.filter((tx) => tx.cups.length > 1).length;
+  $('stat-multi-note').textContent = multi ? `1会計で2杯以上: ${multi}件` : '';
+  renderDays(history);
 
   let itemRows = tallyRows(items, '杯', true);
   if (iceCount) itemRows += `<tr><td>アイストッピング</td><td class="num">${iceCount}個</td><td class="num">${yen(iceAmount)}</td></tr>`;
@@ -846,7 +858,7 @@ function renderHistory() {
   $('tx-list').innerHTML = history.length
     ? [...history].reverse().map((tx, i) => `
       <div class="tx">
-        <div class="tx-head"><span>${txNumber(tx, history.length - i)} <span class="time">${formatTime(tx.time)}</span>${txStatus(tx)}</span><span>${yen(tx.total + tx.cups.filter((c) => c.presale).length * PRESALE_PRICE)}</span></div>
+        <div class="tx-head"><span>${txNumber(tx, history.length - i)} <span class="time">${formatTime(tx.time)}</span>${txStatus(tx)}${tx.cups.length > 1 ? `<span class="multi">${tx.cups.length}オーダー</span>` : ''}</span><span>${yen(txSales(tx))}</span></div>
         <div class="tx-items">${tx.cups.map((c) => escapeHtml(cupName(c)) + (c.ice ? '(アイス)' : '') + (c.presale ? '(前売り)' : '')).join(' / ')}</div>
       </div>`).join('')
     : '<p class="empty">まだ会計がありません</p>';
@@ -860,6 +872,198 @@ function txNumber(tx, fallback) {
 function txStatus(tx) {
   if (tx.pending) return '<span class="status s-pending">未送信</span>';
   return tx.status ? `<span class="status s-${tx.status}">${ORDER_STATUS[tx.status]}</span>` : '';
+}
+
+// ---------- Excel書き出し ----------
+/** 売上に数える金額(前売りの杯は前売り券の代金を足す) */
+function cupSales(cup) { return cup.price + (cup.presale ? PRESALE_PRICE : 0); }
+function txSales(tx) { return tx.cups.reduce((sum, c) => sum + cupSales(c), 0); }
+function dayKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** 会計を日付ごとに分ける。番号は全期間の通し番号のまま */
+function groupByDay(list) {
+  const days = new Map();
+  list.forEach((tx, i) => {
+    const key = dayKey(tx.time);
+    if (!days.has(key)) days.set(key, []);
+    days.get(key).push({ ...tx, no: tx.pending ? null : tx.number ?? i + 1 });
+  });
+  return days;
+}
+function renderDays(list) {
+  const days = [...groupByDay(list).entries()].reverse();
+  $('day-list').innerHTML = days.length
+    ? days.map(([key, txs]) => `
+      <div class="day-row">
+        <span><b>${key}</b><small>会計 ${txs.length}件 / オーダー ${txs.reduce((n, tx) => n + tx.cups.length, 0)}杯 / ${yen(txs.reduce((n, tx) => n + txSales(tx), 0))}</small></span>
+        <button type="button" data-export-day="${key}">📥 Excelに書き出す</button>
+      </div>`).join('')
+    : '<p class="empty">まだ会計がありません</p>';
+}
+
+function xmlEscape(value) {
+  return String(value).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+/** rows: 行の配列。セルは 値 か { v, s }(s: 1=見出し 2=縞 3=太字) */
+function sheetXml(rows, widths, freezeHeader) {
+  const body = rows.map((row, r) => {
+    const cells = row.map((cell, c) => {
+      const { v, s = 0 } = cell !== null && typeof cell === 'object' ? cell : { v: cell };
+      const ref = `${String.fromCharCode(65 + c)}${r + 1}`;
+      if (v === '' || v === null || v === undefined) return s ? `<c r="${ref}" s="${s}"/>` : '';
+      if (typeof v === 'number') return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+      return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;
+    }).join('');
+    return `<row r="${r + 1}">${cells}</row>`;
+  }).join('');
+  const pane = freezeHeader ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : '';
+  const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${pane}<cols>${cols}</cols><sheetData>${body}</sheetData></worksheet>`;
+}
+
+/** 1オーダー1行。1会計の中のオーダーが分かるよう、会計ごとに縞模様にする */
+function ordersSheet(txs) {
+  const head = ['会計No', '時刻', '呼出番号', '会計内の順番', 'シロップ', '飲料', 'アイス', '前売り', '当日受取', '売上', 'この会計の杯数', 'この会計の当日受取', 'この会計の売上', '状況'];
+  const rows = [head.map((v) => ({ v, s: 1 }))];
+  txs.forEach((tx, t) => {
+    const s = t % 2 ? 2 : 0;
+    const status = tx.pending ? '未送信' : tx.status ? ORDER_STATUS[tx.status] : '';
+    tx.cups.forEach((cup, i) => {
+      const first = i === 0;
+      rows.push([
+        tx.no ?? '未送信', formatTime(tx.time).split(' ')[1], tx.pending ? '' : tx.callNumber ?? callNumberOf(tx.no), `${i + 1}/${tx.cups.length}`,
+        cup.syrups.join('・') || 'なし', cup.drink, cup.ice ? 'あり' : 'なし', cup.presale ? '前売り' : '',
+        cup.price, cupSales(cup),
+        first ? tx.cups.length : '', first ? tx.total : '', first ? txSales(tx) : '', first ? status : '',
+      ].map((v) => ({ v, s })));
+    });
+  });
+  return sheetXml(rows, [9, 8, 9, 12, 18, 14, 7, 8, 10, 8, 14, 18, 14, 10], true);
+}
+
+function summarySheet(key, txs) {
+  const cups = txs.flatMap((tx) => tx.cups);
+  const presale = cups.filter((c) => c.presale).length;
+  const iceCount = cups.filter((c) => c.ice).length;
+  const paid = txs.reduce((n, tx) => n + tx.total, 0);
+  const title = (v) => [{ v, s: 3 }];
+  const header = (name) => [{ v: name, s: 1 }, { v: '杯数', s: 1 }, { v: '金額', s: 1 }];
+  const count = (nameOf) => {
+    const map = new Map();
+    cups.forEach((c) => {
+      const row = map.get(nameOf(c)) || { count: 0, amount: 0 };
+      row.count += 1;
+      row.amount += cupSales(c) - (c.ice ? ICE_PRICE : 0);
+      map.set(nameOf(c), row);
+    });
+    return [...map.entries()].sort((a, b) => b[1].count - a[1].count).map(([name, r]) => [name, r.count, r.amount]);
+  };
+  const rows = [
+    title(`${key} の集計`),
+    [],
+    ['総会計(売上)', paid + presale * PRESALE_PRICE],
+    ['当日受取', paid],
+    ['前売り券分', presale * PRESALE_PRICE],
+    [],
+    ['会計数', txs.length],
+    ['オーダー数', cups.length],
+    ['1会計で2杯以上の会計数', txs.filter((tx) => tx.cups.length > 1).length],
+    ['※1会計に複数のオーダーが入るため、会計数とオーダー数は一致しないことがあります'],
+    ['前売りの杯数', presale],
+    ['アイストッピングの個数', iceCount],
+    ['アイストッピングの金額', iceCount * ICE_PRICE],
+    [],
+    title('組み合わせ別(アイス代は除く)'), header('項目'), ...count((c) => cupName(c) + (c.presale ? '(前売り)' : '')),
+    [],
+    title('飲料別(アイス代は除く)'), header('飲料'), ...count((c) => c.drink),
+    [],
+    title('シロップ別(アイス代は除く)'), header('シロップ'), ...count((c) => c.syrups.join('・') || 'シロップなし'),
+  ];
+  return sheetXml(rows, [40, 10, 10], false);
+}
+
+function crc32(bytes) {
+  let crc = -1;
+  for (const b of bytes) {
+    crc ^= b;
+    for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ -1) >>> 0;
+}
+/** 無圧縮のZIPを作る(外部ライブラリなしで、圏外でも書き出せるように) */
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  files.forEach(([name, text]) => {
+    const nameBytes = enc.encode(name);
+    const data = enc.encode(text);
+    const crc = crc32(data);
+    const fill = (v, at) => {
+      v.setUint16(at, 20, true);
+      v.setUint16(at + 8, 33, true);   // 更新日(1980-01-01)
+      v.setUint32(at + 10, crc, true);
+      v.setUint32(at + 14, data.length, true);
+      v.setUint32(at + 18, data.length, true);
+      v.setUint16(at + 22, nameBytes.length, true);
+    };
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    fill(local, 4);
+    chunks.push(new Uint8Array(local.buffer), nameBytes, data);
+    const dir = new DataView(new ArrayBuffer(46));
+    dir.setUint32(0, 0x02014b50, true);
+    dir.setUint16(4, 20, true);
+    fill(dir, 6);
+    dir.setUint32(42, offset, true);
+    central.push(new Uint8Array(dir.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  });
+  const dirSize = central.reduce((n, c) => n + c.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, dirSize, true);
+  end.setUint32(16, offset, true);
+  const all = [...chunks, ...central, new Uint8Array(end.buffer)];
+  const out = new Uint8Array(all.reduce((n, c) => n + c.length, 0));
+  let at = 0;
+  all.forEach((c) => { out.set(c, at); at += c.length; });
+  return out;
+}
+
+function buildWorkbook(key, txs) {
+  const x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const pkg = 'http://schemas.openxmlformats.org/package/2006';
+  const ct = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+  return zipStore([
+    ['[Content_Types].xml', `${x}<Types xmlns="${pkg}/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${ct}.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${ct}.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="${ct}.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${ct}.styles+xml"/></Types>`],
+    ['_rels/.rels', `${x}<Relationships xmlns="${pkg}/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `${x}<workbook xmlns="${main}" xmlns:r="${rel}"><sheets><sheet name="会計別オーダー" sheetId="1" r:id="rId1"/><sheet name="集計" sheetId="2" r:id="rId2"/></sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels', `${x}<Relationships xmlns="${pkg}/relationships"><Relationship Id="rId1" Type="${rel}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${rel}/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="${rel}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml', `${x}<styleSheet xmlns="${main}"><fonts count="2"><font><sz val="11"/><name val="Yu Gothic"/></font><font><b/><sz val="11"/><name val="Yu Gothic"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFE8CC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF8EF"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
+    ['xl/worksheets/sheet1.xml', ordersSheet(txs)],
+    ['xl/worksheets/sheet2.xml', summarySheet(key, txs)],
+  ]);
+}
+
+function exportDay(key) {
+  const txs = groupByDay(historyList()).get(key);
+  if (!txs) return;
+  const url = URL.createObjectURL(new Blob([buildWorkbook(key, txs)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `屋台POS_${key}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ---------- イベント ----------
@@ -928,22 +1132,9 @@ $('done-screen').addEventListener('click', () => show('order-screen'));
 
 $('open-history').addEventListener('click', () => requirePin(() => { renderHistory(); show('history-screen'); }));
 $('close-history').addEventListener('click', () => show('order-screen'));
-$('clear-history').addEventListener('click', async () => {
-  if (!historyList().length) return;
-  if (link) {
-    if (!confirm('連携している全ての端末とグループチャットのオーダーから、会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
-    try {
-      await posApi('DELETE', '/orders');
-      serverOrders = [];
-    } catch (err) {
-      alert(`消去できませんでした: ${err.message}`);
-    }
-  } else {
-    if (!confirm('会計履歴をすべて消去します。元に戻せません。よろしいですか?')) return;
-    history = [];
-    saveHistory();
-  }
-  renderHistory();
+$('day-list').addEventListener('click', (e) => {
+  const key = e.target.dataset?.exportDay;
+  if (key) exportDay(key);
 });
 
 // ---------- メニュー編集 ----------
